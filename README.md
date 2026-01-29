@@ -4,7 +4,7 @@ Smart contract security analysis by Ted. Sardonic but thorough.
 
 ## Live Agent
 
-**🌐 https://audit.unabotter.xyz**
+** https://audit.unabotter.xyz**
 
 ## Endpoints
 
