@@ -522,7 +522,7 @@ addEntrypoint({
   key: "analyze",
   description: "Security vulnerability analysis. I'll find what's wrong and tell you why it's embarrassing.",
   input: analyzeSchema,
-  price: { amount: "0.50", currency: "USDC" },
+  price: "0.50",
   handler: async (ctx) => {
     const { code, contractName } = ctx.input as z.infer<typeof analyzeSchema>;
     
@@ -576,7 +576,7 @@ addEntrypoint({
   key: "optimize",
   description: "Gas optimization analysis. Because every wei counts when you're paying for your own mistakes.",
   input: optimizeSchema,
-  price: { amount: "0.25", currency: "USDC" },
+  price: "0.25",
   handler: async (ctx) => {
     const { code } = ctx.input as z.infer<typeof optimizeSchema>;
     
@@ -616,7 +616,7 @@ addEntrypoint({
   key: "audit",
   description: "Full security audit with report. Sardonic commentary included at no extra charge.",
   input: auditSchema,
-  price: { amount: "1.00", currency: "USDC" },
+  price: "1.00",
   handler: async (ctx) => {
     const { code, contractName, includeGasOptimization } = ctx.input as z.infer<typeof auditSchema>;
     
