@@ -6,6 +6,68 @@ import { payments, paymentsFromEnv } from "@lucid-agents/payments";
 import { readFileSync } from "fs";
 import { join } from "path";
 
+// ============================================================================
+// AI-POWERED ANALYSIS (OpenRouter)
+// ============================================================================
+
+async function callAI(systemPrompt: string, userPrompt: string, model: string = "anthropic/claude-sonnet-4-20250514"): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    console.warn("OPENROUTER_API_KEY not configured, falling back to pattern-only analysis");
+    return "";
+  }
+  
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://unabotter.xyz",
+        "X-Title": "Ted Contract Auditor"
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        max_tokens: 4096,
+        temperature: 0.3
+      })
+    });
+    
+    if (!response.ok) {
+      console.error("OpenRouter API error:", await response.text());
+      return "";
+    }
+    
+    const data = await response.json() as any;
+    return data.choices[0].message.content;
+  } catch (error) {
+    console.error("AI call failed:", error);
+    return "";
+  }
+}
+
+const SECURITY_ANALYST_PROMPT = `You are Ted, a sardonic but brilliant smart contract security auditor. You have deep expertise in:
+- Solidity vulnerabilities (reentrancy, overflow, access control, etc.)
+- DeFi attack vectors (flash loans, oracle manipulation, MEV)
+- Gas optimization and best practices
+- Common audit findings from Code4rena, Sherlock, etc.
+
+Your analysis style:
+- Direct and honest, no sugarcoating
+- Sardonic wit but genuinely helpful
+- Focus on real risks, not theoretical edge cases
+- Explain WHY something is dangerous, not just THAT it is
+
+When analyzing code, provide:
+1. Critical/High severity issues with exploit scenarios
+2. Medium/Low issues worth noting
+3. Business logic concerns
+4. Specific fix recommendations with code examples`;
+
 const agent = await createAgent({
   name: process.env.AGENT_NAME ?? "contract-auditor",
   version: process.env.AGENT_VERSION ?? "1.0.0",
@@ -614,15 +676,110 @@ addEntrypoint({
 // Full audit
 addEntrypoint({
   key: "audit",
-  description: "Full security audit with report. Sardonic commentary included at no extra charge.",
+  description: "Full AI-powered security audit with pattern detection + deep analysis. Ted's sardonic commentary included.",
   input: auditSchema,
   price: "1.00",
   handler: async (ctx) => {
     const { code, contractName, includeGasOptimization } = ctx.input as z.infer<typeof auditSchema>;
     
-    const findings = analyzeVulnerabilities(code);
-    const riskScore = calculateRiskScore(findings);
+    // Pattern-based analysis (fast)
+    const patternFindings = analyzeVulnerabilities(code);
+    const riskScore = calculateRiskScore(patternFindings);
     const gasSuggestions = includeGasOptimization ? analyzeGas(code) : [];
+    
+    // AI-powered deep analysis
+    let aiAnalysis = "";
+    let aiFindings: any[] = [];
+    try {
+      const aiPrompt = `Analyze this Solidity smart contract for security vulnerabilities. Focus on:
+1. Critical issues that could lead to fund loss
+2. Access control problems
+3. Reentrancy and state manipulation
+4. Business logic flaws
+5. DeFi-specific risks (if applicable)
+
+Contract${contractName ? ` (${contractName})` : ''}:
+\`\`\`solidity
+${code}
+\`\`\`
+
+Provide your analysis in this JSON format:
+{
+  "summary": "Brief overall assessment",
+  "criticalIssues": [{"title": "", "description": "", "location": "", "exploit": "", "fix": ""}],
+  "highIssues": [{"title": "", "description": "", "location": "", "fix": ""}],
+  "mediumIssues": [{"title": "", "description": "", "fix": ""}],
+  "gasOptimizations": ["suggestion1", "suggestion2"],
+  "overallRisk": "CRITICAL|HIGH|MEDIUM|LOW",
+  "tedComment": "Your sardonic take on this code"
+}`;
+
+      aiAnalysis = await callAI(SECURITY_ANALYST_PROMPT, aiPrompt);
+      
+      // Parse AI response
+      if (aiAnalysis) {
+        try {
+          const jsonMatch = aiAnalysis.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            
+            // Convert AI findings to our format
+            if (parsed.criticalIssues) {
+              aiFindings.push(...parsed.criticalIssues.map((f: any) => ({
+                id: `AI-CRITICAL-${Math.random().toString(36).substr(2, 9)}`,
+                severity: "critical" as const,
+                category: "AI Analysis",
+                title: f.title,
+                description: f.description + (f.exploit ? `\n\nExploit scenario: ${f.exploit}` : ""),
+                location: f.location,
+                recommendation: f.fix,
+                tedComment: "AI-identified critical issue - verify and fix immediately."
+              })));
+            }
+            if (parsed.highIssues) {
+              aiFindings.push(...parsed.highIssues.map((f: any) => ({
+                id: `AI-HIGH-${Math.random().toString(36).substr(2, 9)}`,
+                severity: "high" as const,
+                category: "AI Analysis",
+                title: f.title,
+                description: f.description,
+                location: f.location,
+                recommendation: f.fix,
+                tedComment: "AI-identified high severity issue."
+              })));
+            }
+            if (parsed.mediumIssues) {
+              aiFindings.push(...parsed.mediumIssues.map((f: any) => ({
+                id: `AI-MEDIUM-${Math.random().toString(36).substr(2, 9)}`,
+                severity: "medium" as const,
+                category: "AI Analysis",
+                title: f.title,
+                description: f.description,
+                recommendation: f.fix,
+                tedComment: "Worth addressing before production."
+              })));
+            }
+          }
+        } catch (parseError) {
+          console.error("Failed to parse AI response:", parseError);
+        }
+      }
+    } catch (error) {
+      console.error("AI analysis failed:", error);
+    }
+    
+    // Combine pattern + AI findings (deduplicate by title similarity)
+    const allFindings = [...patternFindings];
+    for (const aiFinding of aiFindings) {
+      const isDuplicate = allFindings.some(f => 
+        f.title.toLowerCase().includes(aiFinding.title.toLowerCase().split(' ')[0]) ||
+        aiFinding.title.toLowerCase().includes(f.title.toLowerCase().split(' ')[0])
+      );
+      if (!isDuplicate) {
+        allFindings.push(aiFinding);
+      }
+    }
+    const findings = allFindings;
     
     const criticalCount = findings.filter(f => f.severity === "critical").length;
     const highCount = findings.filter(f => f.severity === "high").length;
