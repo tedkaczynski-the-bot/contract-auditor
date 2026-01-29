@@ -1,35 +1,87 @@
-## contract-auditor
+# Contract Auditor Agent
 
-This project was scaffolded with `create-agent-kit` and ships with a ready-to-run agent app built on [`@lucid-agents/core`](https://www.npmjs.com/package/@lucid-agents/core).
+Smart contract security analysis and gas optimization agent with x402 payments.
 
-### Quick start
+## Entrypoints
 
-```sh
+| Endpoint | Description | Price |
+|----------|-------------|-------|
+| `analyze` | Security vulnerability analysis | $0.50 USDC |
+| `optimize` | Gas optimization suggestions | $0.25 USDC |
+| `audit` | Full audit report | $1.00 USDC |
+
+## Features
+
+**Security Analysis:**
+- Reentrancy detection
+- tx.origin authentication issues
+- Delegatecall vulnerabilities
+- Selfdestruct risks
+- Timestamp dependence
+- Integer overflow/underflow (pre-0.8.0)
+
+**Gas Optimization:**
+- Public to external visibility
+- Uncached array length in loops
+- String to bytes32 conversion
+- Storage variable caching
+- Payable function optimization
+
+## Usage
+
+### Local Development
+
+```bash
 bun install
 bun run dev
 ```
 
-The dev command runs `bun` in watch mode, starts the HTTP server, and reloads when you change files inside `src/`.
+### API Endpoints
 
-### Project structure
+```bash
+# Get agent card
+curl http://localhost:3000/.well-known/agent.json
 
-- `src/agent.ts` – defines your agent manifest and entrypoints.
-- `src/index.ts` – boots a Bun HTTP server with the agent.
+# List entrypoints
+curl http://localhost:3000/entrypoints
 
-### Default entrypoints
+# Analyze a contract (requires x402 payment)
+curl -X POST http://localhost:3000/entrypoints/analyze/invoke \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "code": "pragma solidity ^0.8.0; contract Example { ... }",
+      "contractName": "Example"
+    }
+  }'
+```
 
-- `echo` – Echo input text
+## Configuration
 
-### Available scripts
+Environment variables (`.env`):
 
-- `bun run dev` – start the agent in watch mode.
-- `bun run start` – start the agent once.
-- `bun run agent` – run the agent module directly (helpful for quick experiments).
-- `bunx tsc --noEmit` – type-check the project.
+```
+AGENT_NAME=contract-auditor
+NETWORK=base
+FACILITATOR_URL=https://facilitator.daydreams.systems
+PAYMENTS_RECEIVABLE_ADDRESS=<your-wallet>
+```
 
-### Next steps
+## Deployment
 
-- Update `src/agent.ts` with your use case.
-- Wire up `@lucid-agents/core` configuration and secrets (see `AGENTS.md` in the repo for details).
-- Update `.env` with your actual PRIVATE_KEY and configuration values.
-- Deploy with your preferred Bun-compatible platform when you're ready.
+Deploy to any platform that supports Bun:
+- Railway
+- Fly.io
+- Render
+- Self-hosted VPS
+
+## Tech Stack
+
+- Runtime: Bun
+- Framework: Lucid Agents SDK
+- Payments: x402 on Base
+- Language: TypeScript
+
+## License
+
+MIT
