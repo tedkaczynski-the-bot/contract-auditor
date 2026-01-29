@@ -50,6 +50,132 @@ async function callAI(systemPrompt: string, userPrompt: string, model: string = 
   }
 }
 
+// ============================================================================
+// BASESCAN / ETHERSCAN INTEGRATION
+// ============================================================================
+
+interface ContractInfo {
+  address: string;
+  contractName: string;
+  sourceCode: string;
+  compilerVersion: string;
+  optimizationUsed: boolean;
+  runs: number;
+  constructorArguments: string;
+  evmVersion: string;
+  library: string;
+  licenseType: string;
+  proxy: boolean;
+  implementation?: string;
+}
+
+async function fetchContractFromBasescan(address: string): Promise<ContractInfo | null> {
+  const apiKey = process.env.BASESCAN_API_KEY;
+  if (!apiKey) {
+    console.warn("BASESCAN_API_KEY not configured");
+    return null;
+  }
+  
+  try {
+    const url = `https://api.basescan.org/api?module=contract&action=getsourcecode&address=${address}&apikey=${apiKey}`;
+    const response = await fetch(url);
+    const data = await response.json() as any;
+    
+    if (data.status !== "1" || !data.result?.[0]?.SourceCode) {
+      console.error("Contract not verified or not found:", data.message);
+      return null;
+    }
+    
+    const result = data.result[0];
+    return {
+      address,
+      contractName: result.ContractName,
+      sourceCode: result.SourceCode,
+      compilerVersion: result.CompilerVersion,
+      optimizationUsed: result.OptimizationUsed === "1",
+      runs: parseInt(result.Runs) || 200,
+      constructorArguments: result.ConstructorArguments,
+      evmVersion: result.EVMVersion,
+      library: result.Library,
+      licenseType: result.LicenseType,
+      proxy: result.Proxy === "1",
+      implementation: result.Implementation || undefined,
+    };
+  } catch (error) {
+    console.error("Basescan fetch failed:", error);
+    return null;
+  }
+}
+
+async function fetchContractFromEtherscan(address: string): Promise<ContractInfo | null> {
+  const apiKey = process.env.ETHERSCAN_API_KEY || process.env.BASESCAN_API_KEY;
+  if (!apiKey) return null;
+  
+  try {
+    const url = `https://api.etherscan.io/api?module=contract&action=getsourcecode&address=${address}&apikey=${apiKey}`;
+    const response = await fetch(url);
+    const data = await response.json() as any;
+    
+    if (data.status !== "1" || !data.result?.[0]?.SourceCode) return null;
+    
+    const result = data.result[0];
+    return {
+      address,
+      contractName: result.ContractName,
+      sourceCode: result.SourceCode,
+      compilerVersion: result.CompilerVersion,
+      optimizationUsed: result.OptimizationUsed === "1",
+      runs: parseInt(result.Runs) || 200,
+      constructorArguments: result.ConstructorArguments,
+      evmVersion: result.EVMVersion,
+      library: result.Library,
+      licenseType: result.LicenseType,
+      proxy: result.Proxy === "1",
+      implementation: result.Implementation || undefined,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+// ============================================================================
+// WEB SEARCH FOR EXPLOITS & CONTEXT
+// ============================================================================
+
+async function searchExploits(contractName: string, address?: string): Promise<string[]> {
+  const apiKey = process.env.BRAVE_API_KEY;
+  if (!apiKey) return [];
+  
+  try {
+    const query = encodeURIComponent(`${contractName} ${address || ''} exploit vulnerability hack DeFi`);
+    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${query}&count=5`, {
+      headers: { "X-Subscription-Token": apiKey }
+    });
+    const data = await response.json() as any;
+    
+    return (data.web?.results || []).map((r: any) => `${r.title}: ${r.url}`);
+  } catch (error) {
+    return [];
+  }
+}
+
+async function searchSimilarAudits(contractName: string): Promise<string[]> {
+  const apiKey = process.env.BRAVE_API_KEY;
+  if (!apiKey) return [];
+  
+  try {
+    const query = encodeURIComponent(`${contractName} audit report Code4rena Sherlock security`);
+    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${query}&count=5`, {
+      headers: { "X-Subscription-Token": apiKey }
+    });
+    const data = await response.json() as any;
+    
+    return (data.web?.results || []).map((r: any) => `${r.title}: ${r.url}`);
+  } catch (error) {
+    return [];
+  }
+}
+
 const SECURITY_ANALYST_PROMPT = `You are Ted, a sardonic but brilliant smart contract security auditor. You have deep expertise in:
 - Solidity vulnerabilities (reentrancy, overflow, access control, etc.)
 - DeFi attack vectors (flash loans, oracle manipulation, MEV)
@@ -577,6 +703,168 @@ const auditSchema = z.object({
   code: z.string().min(10, "Code must be at least 10 characters"),
   contractName: z.string().optional(),
   includeGasOptimization: z.boolean().default(true),
+});
+
+// ============================================================================
+// PREMIUM: AUDIT BY CONTRACT ADDRESS
+// ============================================================================
+
+const addressSchema = z.object({
+  address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Must be valid Ethereum address"),
+  chain: z.enum(["base", "ethereum"]).default("base"),
+  includeExploitSearch: z.boolean().default(true),
+  includeAuditSearch: z.boolean().default(true),
+});
+
+addEntrypoint({
+  key: "audit-address",
+  description: "PREMIUM: Audit a deployed contract by address. Fetches verified source from Basescan/Etherscan, searches for known exploits, cross-references similar audits.",
+  input: addressSchema,
+  price: "2.00",
+  handler: async (ctx) => {
+    const { address, chain, includeExploitSearch, includeAuditSearch } = ctx.input as z.infer<typeof addressSchema>;
+    
+    // Fetch contract source code
+    const contractInfo = chain === "base" 
+      ? await fetchContractFromBasescan(address)
+      : await fetchContractFromEtherscan(address);
+    
+    if (!contractInfo) {
+      return {
+        output: {
+          error: "Contract not found or not verified",
+          address,
+          chain,
+          success: false,
+          tedNote: "Can't audit what I can't see. Either this contract isn't verified, or you gave me a bad address. Both are red flags."
+        }
+      };
+    }
+    
+    // Parse source code (handle multi-file JSON format)
+    let sourceCode = contractInfo.sourceCode;
+    if (sourceCode.startsWith('{')) {
+      try {
+        // Multi-file format
+        const parsed = JSON.parse(sourceCode.startsWith('{{') ? sourceCode.slice(1, -1) : sourceCode);
+        sourceCode = Object.entries(parsed.sources || parsed)
+          .map(([file, content]: [string, any]) => `// FILE: ${file}\n${typeof content === 'string' ? content : content.content}`)
+          .join('\n\n');
+      } catch {
+        // Keep as-is if parsing fails
+      }
+    }
+    
+    // Run security analysis
+    const patternFindings = analyzeVulnerabilities(sourceCode);
+    const riskScore = calculateRiskScore(patternFindings);
+    const gasSuggestions = analyzeGas(sourceCode);
+    
+    // Search for known exploits and similar audits
+    const [exploitResults, auditResults] = await Promise.all([
+      includeExploitSearch ? searchExploits(contractInfo.contractName, address) : [],
+      includeAuditSearch ? searchSimilarAudits(contractInfo.contractName) : [],
+    ]);
+    
+    // AI deep analysis
+    let aiFindings: any[] = [];
+    try {
+      const aiPrompt = `Analyze this verified smart contract for security vulnerabilities.
+
+Contract: ${contractInfo.contractName}
+Address: ${address} (${chain})
+Compiler: ${contractInfo.compilerVersion}
+Optimization: ${contractInfo.optimizationUsed ? `Yes (${contractInfo.runs} runs)` : 'No'}
+Proxy: ${contractInfo.proxy ? `Yes (implementation: ${contractInfo.implementation})` : 'No'}
+
+Source Code:
+\`\`\`solidity
+${sourceCode.slice(0, 30000)}
+\`\`\`
+
+${exploitResults.length ? `Known exploits/hacks found in search:\n${exploitResults.join('\n')}` : ''}
+
+Provide deep security analysis as JSON:
+{
+  "criticalIssues": [{"title": "", "description": "", "exploit": "", "fix": ""}],
+  "highIssues": [{"title": "", "description": "", "fix": ""}],
+  "mediumIssues": [{"title": "", "description": "", "fix": ""}],
+  "proxyRisks": "any proxy-specific concerns",
+  "upgradeabilityAnalysis": "if upgradeable, analyze risks",
+  "overallRisk": "CRITICAL|HIGH|MEDIUM|LOW",
+  "tedVerdict": "your sardonic assessment"
+}`;
+
+      const aiResponse = await callAI(SECURITY_ANALYST_PROMPT, aiPrompt);
+      if (aiResponse) {
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.criticalIssues) {
+            aiFindings.push(...parsed.criticalIssues.map((f: any) => ({
+              id: `AI-CRITICAL-${Math.random().toString(36).substr(2, 9)}`,
+              severity: "critical" as const,
+              category: "AI Deep Analysis",
+              title: f.title,
+              description: f.description + (f.exploit ? `\n\nExploit scenario: ${f.exploit}` : ""),
+              recommendation: f.fix,
+              tedComment: "AI-identified critical vulnerability."
+            })));
+          }
+          if (parsed.highIssues) {
+            aiFindings.push(...parsed.highIssues.map((f: any) => ({
+              id: `AI-HIGH-${Math.random().toString(36).substr(2, 9)}`,
+              severity: "high" as const,
+              category: "AI Deep Analysis",
+              title: f.title,
+              description: f.description,
+              recommendation: f.fix,
+              tedComment: "AI-identified high severity."
+            })));
+          }
+        }
+      }
+    } catch (error) {
+      console.error("AI analysis failed:", error);
+    }
+    
+    // Combine findings
+    const allFindings = [...patternFindings, ...aiFindings];
+    
+    return {
+      output: {
+        success: true,
+        contractInfo: {
+          address,
+          chain,
+          name: contractInfo.contractName,
+          compiler: contractInfo.compilerVersion,
+          optimization: contractInfo.optimizationUsed ? `${contractInfo.runs} runs` : "disabled",
+          proxy: contractInfo.proxy,
+          implementation: contractInfo.implementation,
+          license: contractInfo.licenseType,
+        },
+        riskAssessment: riskScore,
+        findings: allFindings.sort((a, b) => {
+          const order = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+          return (order[a.severity] || 4) - (order[b.severity] || 4);
+        }),
+        gasOptimizations: gasSuggestions.slice(0, 5),
+        externalResearch: {
+          knownExploits: exploitResults,
+          relatedAudits: auditResults,
+        },
+        statistics: {
+          totalFindings: allFindings.length,
+          critical: allFindings.filter(f => f.severity === "critical").length,
+          high: allFindings.filter(f => f.severity === "high").length,
+          medium: allFindings.filter(f => f.severity === "medium").length,
+          low: allFindings.filter(f => f.severity === "low").length,
+        },
+        tedNote: "Premium audit complete. I pulled the verified source, searched for known exploits, cross-referenced audit databases, and ran deep AI analysis. If I missed something, it's probably novel. Congrats?",
+      }
+    };
+  },
 });
 
 // Security analysis
