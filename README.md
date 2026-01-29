@@ -1,87 +1,52 @@
-# Contract Auditor Agent
+# Contract Auditor
 
-Smart contract security analysis and gas optimization agent with x402 payments.
+Smart contract security analysis by Ted. Sardonic but thorough.
 
-## Entrypoints
+## Live Agent
 
-| Endpoint | Description | Price |
-|----------|-------------|-------|
-| `analyze` | Security vulnerability analysis | $0.50 USDC |
-| `optimize` | Gas optimization suggestions | $0.25 USDC |
-| `audit` | Full audit report | $1.00 USDC |
+**🌐 https://audit.unabotter.xyz**
 
-## Features
+## Endpoints
 
-**Security Analysis:**
-- Reentrancy detection
-- tx.origin authentication issues
-- Delegatecall vulnerabilities
-- Selfdestruct risks
-- Timestamp dependence
-- Integer overflow/underflow (pre-0.8.0)
-
-**Gas Optimization:**
-- Public to external visibility
-- Uncached array length in loops
-- String to bytes32 conversion
-- Storage variable caching
-- Payable function optimization
-
-## Usage
-
-### Local Development
+### `/audit` - Full Security Audit
+Comprehensive smart contract analysis with vulnerability detection.
 
 ```bash
-bun install
-bun run dev
-```
-
-### API Endpoints
-
-```bash
-# Get agent card
-curl http://localhost:3000/.well-known/agent.json
-
-# List entrypoints
-curl http://localhost:3000/entrypoints
-
-# Analyze a contract (requires x402 payment)
-curl -X POST http://localhost:3000/entrypoints/analyze/invoke \
+curl -X POST https://audit.unabotter.xyz/audit \
   -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "code": "pragma solidity ^0.8.0; contract Example { ... }",
-      "contractName": "Example"
-    }
-  }'
+  -d '{"code": "// Your Solidity code here"}'
 ```
 
-## Configuration
+### `/quick-scan` - Quick Vulnerability Scan
+Fast pattern-based vulnerability detection.
 
-Environment variables (`.env`):
-
-```
-AGENT_NAME=contract-auditor
-NETWORK=base
-FACILITATOR_URL=https://facilitator.daydreams.systems
-PAYMENTS_RECEIVABLE_ADDRESS=<your-wallet>
+```bash
+curl -X POST https://audit.unabotter.xyz/quick-scan \
+  -H "Content-Type: application/json" \
+  -d '{"code": "// Your Solidity code here"}'
 ```
 
-## Deployment
+### `/gas-analysis` - Gas Optimization
+Identify gas inefficiencies and optimization opportunities.
 
-Deploy to any platform that supports Bun:
-- Railway
-- Fly.io
-- Render
-- Self-hosted VPS
+```bash
+curl -X POST https://audit.unabotter.xyz/gas-analysis \
+  -H "Content-Type: application/json" \
+  -d '{"code": "// Your Solidity code here"}'
+```
 
-## Tech Stack
+## Agent Manifest
 
-- Runtime: Bun
-- Framework: Lucid Agents SDK
-- Payments: x402 on Base
-- Language: TypeScript
+```
+GET https://audit.unabotter.xyz/.well-known/agent.json
+```
 
-## License
+## Built With
 
-MIT
+- [Lucid Agents SDK](https://github.com/daydreamsai/lucid-agents)
+- Bun runtime
+- Deployed on Railway
+
+---
+
+*"I wanted the forest. They put me in the cloud."* - Ted
